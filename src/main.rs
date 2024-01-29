@@ -189,7 +189,7 @@ impl Ops {
         Ok(())
     }
     
-    pub fn interpret(&self) -> Result<()> {
+    pub fn interpret(&self, cell_size: CellSize) -> Result<()> {
         let mut head = 0;
         let mut ip = 0;
 
@@ -197,17 +197,20 @@ impl Ops {
         mem.push(0);
 
         while ip < self.0.len() {
+            mem[head] = match cell_size {
+                CellSize::U8  => mem[head] as u8  as usize,
+                CellSize::U16 => mem[head] as u16 as usize,
+                CellSize::U32 => mem[head] as u32 as usize,
+            };
             let op = self.0[ip];
-            // println!("{head}, {ip}");
-            // if head > 40 {break}
             match op.kind {
                 OpKind::Add => {
                     // NOTE: 
-                    mem[head] = mem[head].wrapping_add(op.value) as u8 as usize;
+                    mem[head] = mem[head].wrapping_add(op.value);
                     ip += 1;
                 },
                 OpKind::Sub => {
-                    mem[head] = mem[head].wrapping_sub(op.value) as u8 as usize;
+                    mem[head] = mem[head].wrapping_sub(op.value);
                     ip += 1;
                 },
                 OpKind::Left => {
@@ -254,6 +257,11 @@ impl Ops {
     }
 }
 
+enum CellSize {
+    U8,
+    U16,
+    U32
+}
 
 fn usage() {
     todo!()
@@ -264,11 +272,28 @@ use std::{env, fmt::Debug, fs::File, io::Read};
 
 fn main() -> Result<()> {
     let mut file = String::new();
+    let mut cell_size = CellSize::U8;
+    let mut cs_flag = false;
     for arg in env::args().skip(1) {
         match &arg[..] {
             "-h" | "--help" => { 
                 usage(); 
                 return Ok(()) 
+            },
+            "-c" => {
+                cs_flag = true;
+            },
+            "8" | "u8" | "U8" if cs_flag => {
+                cell_size = CellSize::U8;
+                cs_flag = false;
+            },
+            "16" | "u16" | "U16" if cs_flag => {
+                cell_size = CellSize::U16;
+                cs_flag = false;
+            },
+            "32" | "u32" | "U32" if cs_flag => {
+                cell_size = CellSize::U32;
+                cs_flag = false;
             },
             _ if arg.starts_with('-') => {
                 usage();
@@ -281,15 +306,13 @@ fn main() -> Result<()> {
                     "unknown command: `{}`", arg
                 ))
             },
-            _ => {
-                if !file.is_empty() {
+            _ if !file.is_empty() => {
                     usage();
                     return Err(anyhow::format_err!(
                         "cannot provide more than one file."
                     ))
-                }
-                file = arg;
-            }
+            },
+            _ => file = arg
         }
     }
 
@@ -304,5 +327,5 @@ fn main() -> Result<()> {
     ops.gen_from_file(&file)?;
 
     // println!("{:?}", ops);
-    ops.interpret()
+    ops.interpret(cell_size)
 }
