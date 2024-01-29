@@ -1,42 +1,39 @@
-
-
-
 #[derive(Debug)]
-enum Op {
-    Add(usize),
-    Sub(usize),
-    Left(usize),
-    Right(usize),
-    Input(usize),
-    Output(usize),
-    JmpZero(usize),
-    JmpNonZero(usize),
+enum OpKind {
+    Add,
+    Sub,
+    Left,
+    Right,
+    Input,
+    Output,
+    JmpZero,
+    JmpNonZero,
 }
 
-impl Op {
+impl OpKind {
     pub fn as_char(&self) -> char {
         match self {
-            Self::Add(_)        => '+',
-            Self::Sub(_)        => '-',
-            Self::Left(_)       => '<',
-            Self::Right(_)      => '>',
-            Self::Input(_)      => ',',
-            Self::Output(_)     => '.',
-            Self::JmpZero(_)    => '[',
-            Self::JmpNonZero(_) => ']',
+            Self::Add        => '+',
+            Self::Sub        => '-',
+            Self::Left       => '<',
+            Self::Right      => '>',
+            Self::Input      => ',',
+            Self::Output     => '.',
+            Self::JmpZero    => '[',
+            Self::JmpNonZero => ']',
         }
     }
     
-    pub fn from(ch: char, n: usize) -> Self {
+    pub fn from(ch: char) -> Self {
         match ch {
-            '+' => {Self::Add(n)},
-            '-' => {Self::Sub(n)},
-            '<' => {Self::Left(n)},
-            '>' => {Self::Right(n)},
-            ',' => {Self::Input(n)},
-            '.' => {Self::Output(n)},
-            '[' => {Self::JmpZero(n)},
-            ']' => {Self::JmpNonZero(n)},
+            '+' => Self::Add,
+            '-' => Self::Sub,
+            '<' => Self::Left,
+            '>' => Self::Right,
+            ',' => Self::Input,
+            '.' => Self::Output,
+            '[' => Self::JmpZero,
+            ']' => Self::JmpNonZero,
             _ => unimplemented!()
         }
     } 
@@ -49,7 +46,26 @@ impl Op {
     }
 }
 
+struct Op {
+    kind: OpKind,
+    value: usize
+}
+
+impl Op {
+    pub fn from_char(ch: char, value: usize) -> Self{
+        let kind  = OpKind::from(ch);
+        Self { kind, value }
+    }
+}
+
+
 struct Addrs (Vec<usize>);
+
+impl Addrs {
+    pub fn new() -> Self {
+        Self(vec![])
+    }
+}
 
 struct Lexer<'a> {
     source: &'a [char],
@@ -69,7 +85,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn trim_whitespace(&mut self) {
-        while self.has_more_chars() && !Op::is_op(self.source[0]) {
+        while self.has_more_chars() && !OpKind::is_op(self.source[0]) {
             self.advance();
         }
     }
@@ -90,39 +106,47 @@ impl<'a> Lexer<'a> {
 
     pub fn next(&mut self) -> Option<Op> {
         self.trim_whitespace();
-
         if self.has_more_chars() {
-            match self.source[0] {
+            let (i , n) = match self.source[0] {
                 '+' | '-' | '<' | '>' | ',' | '.'  => {
                     let i = self.source[0];
-                    let n = self.chop_while(|x| *x == i);
-                    Some(Op::from(i, n))
+                    (i, self.chop_while(|x| *x == i))
                 },
-                '[' => {
+                '[' | ']' => {
+                    let i = self.source[0];
                     self.advance();
-                    Some(Op::JmpZero(0))
+                    (i, 0)
                 },
-                ']' => {
-                    self.advance();
-                    Some(Op::JmpNonZero(0))
-                },
-                _ => {unreachable!()}
-            }
+                _ => unreachable!(),
+            };
+            Some(Op::from_char(i, n))
         } else {
             None
         }
     }
 }
 
-#[derive(Debug)]
 struct Ops (Vec<Op>);
+
+impl Debug for Ops {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // f.debug_struct("Op").field("kind", &self.kind).field("value", &self.value).finish()
+
+        writeln!(f, "Ops ")?;
+        for  Op {kind, value} in &self.0 {
+            let k = kind.as_char();
+            writeln!(f, "{k} -> {value}")?;
+        }
+        Result::Ok(())
+    }
+}
 
 impl Ops {
     pub fn new() -> Self {
         Self(vec![])
     }
 
-    pub fn gen(&mut self, file_path: &str) -> Result<()> {
+    pub fn gen_from_file(&mut self, file_path: &str) -> Result<()> {
         
         let Result::Ok(mut f) = File::open(file_path) else {
             return Err(anyhow::format_err!(
@@ -133,31 +157,28 @@ impl Ops {
         let mut contents = String::new();
         f.read_to_string(&mut contents)?;
         let contents = &contents.chars().collect::<Vec<_>>();
-        let mut stack = Addrs(vec![]);
+        let mut stack = Addrs::new();
 
         let mut lexer = Lexer::new(&contents);
 
         while let Some(op) = lexer.next() {
             // println!("{op:?}");
-            match op {
-                Op::JmpZero(_) => {
+            match op.kind {
+                OpKind::JmpZero => {
                     let addr = self.0.len();
                     self.0.push(op);
                     stack.0.push(addr);
                 },
-                Op::JmpNonZero(_) => {
+                OpKind::JmpNonZero => {
                     let Some(&addr) = stack.0.last() else {
                         return Err(anyhow::format_err!(
                             "unbalanced loop at {}", lexer.pos
                         ))
                     };
                     stack.0.pop();
-                    self.0.push(Op::JmpNonZero(addr + 1));
-
-                    let new_addr = self.0.len();
-                    if let Op::JmpZero(ref mut wrapped_value) = self.0[addr] {
-                        *wrapped_value = new_addr;
-                    }
+                    let op = Op { kind: OpKind::JmpNonZero, value: addr + 1 };
+                    self.0.push(op);
+                    self.0[addr].value  = self.0.len();
                 },
                 _ => self.0.push(op),
             }
@@ -173,7 +194,7 @@ fn usage() {
 }
 
 use anyhow::{Ok, Result};
-use std::{env, fs::File, io::Read, str::Chars};
+use std::{env, fmt::Debug, fs::File, io::Read};
 
 fn main() -> Result<()> {
     let mut file = String::new();
@@ -214,7 +235,7 @@ fn main() -> Result<()> {
     }
 
     let mut ops = Ops::new();
-    ops.gen(&file)?;
+    ops.gen_from_file(&file)?;
 
     println!("{:?}", ops);
 
