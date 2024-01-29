@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum OpKind {
     Add,
     Sub,
@@ -46,13 +46,15 @@ impl OpKind {
     }
 }
 
+
+#[derive(Clone, Copy)]
 struct Op {
     kind: OpKind,
     value: usize
 }
 
 impl Op {
-    pub fn from_char(ch: char, value: usize) -> Self{
+    pub fn from_char(ch: char, value: usize) -> Self {
         let kind  = OpKind::from(ch);
         Self { kind, value }
     }
@@ -186,6 +188,70 @@ impl Ops {
         
         Ok(())
     }
+    
+    pub fn interpret(&self) -> Result<()> {
+        let mut head = 0;
+        let mut ip = 0;
+
+        let mut mem:Vec<usize> = Vec::new();
+        mem.push(0);
+
+        while ip < self.0.len() {
+            let op = self.0[ip];
+            // println!("{head}, {ip}");
+            // if head > 40 {break}
+            match op.kind {
+                OpKind::Add => {
+                    // NOTE: 
+                    mem[head] = mem[head].wrapping_add(op.value) as u8 as usize;
+                    ip += 1;
+                },
+                OpKind::Sub => {
+                    mem[head] = mem[head].wrapping_sub(op.value) as u8 as usize;
+                    ip += 1;
+                },
+                OpKind::Left => {
+                    if head < op.value {
+                        return Err(anyhow::format_err!(
+                            "Memory Underflow"
+                        ))
+                    }
+                    head -= op.value;
+                    ip += 1;
+                },
+                OpKind::Right => {
+                    head += op.value;
+                    if head >= mem.len() {
+                        mem.resize(head + 1, 0);
+                    }
+                    ip += 1;
+                },
+                OpKind::Input => todo!(),
+                OpKind::Output => {
+                    for _ in 0..op.value {
+                        print!("{}", mem[head] as u8 as char);
+                    }
+                    ip += 1;
+                },
+                OpKind::JmpZero => {
+                    if mem[head] == 0 {
+                        ip = op.value; 
+                    } else {
+                        ip += 1;
+                    }
+                },
+                OpKind::JmpNonZero => {
+                    if mem[head] != 0 {
+                        ip = op.value;
+                    } else {
+                        ip += 1;
+                    }
+                },
+            }
+
+        }
+        Ok(())
+    }
 }
 
 
@@ -237,9 +303,6 @@ fn main() -> Result<()> {
     let mut ops = Ops::new();
     ops.gen_from_file(&file)?;
 
-    println!("{:?}", ops);
-
-    // println!("Hello, world!");
-
-    Ok(())
+    // println!("{:?}", ops);
+    ops.interpret()
 }
